@@ -75,6 +75,9 @@ class Frenet extends CarrierModule
             return false;
         }
 
+        if(!$this->maybeUpdateDatabase())
+            return false;
+
         $this->installCarriers();
 
         if (parent::install() == false or
@@ -87,7 +90,23 @@ class Frenet extends CarrierModule
             Configuration::updateValue('FRENET_SELLER_CEP', '');
         }
 
+        return true;
+    }
 
+    //function used to upgrade the Carrier table
+    private function maybeUpdateDatabase(){
+        $sql = 'DESCRIBE '._DB_PREFIX_. 'carrier';
+        $columns = Db::getInstance()->executeS($sql);
+        $found = false;
+        foreach($columns as $col){
+            if($col['Field']=='cdfrenet'){
+                $found = true;
+                break;
+            }
+        }
+        if(!$found){
+            Db::getInstance()->execute('ALTER TABLE `'._DB_PREFIX_. 'carrier' .'` ADD `cdfrenet` VARCHAR(64) NULL');
+        }
         return true;
     }
 
@@ -102,21 +121,64 @@ class Frenet extends CarrierModule
 
     public function installCarriers()
     {
-        $config = array(
-            'name' => $this->_moduleName,
-            'id_tax_rules_group' => 0,
-            'active' => true,
-            'deleted' => 0,
-            'shipping_handling' => false,
-            'range_behavior' => 0,
-            'delay' => array("br" => "Prazo de Entrega"),
-            'id_zone' => 1,
-            'is_module' => true,
-            'shipping_external' => true,
-            'external_module_name' => $this->_moduleName,
-            'need_range' => true
-        );
-        $id_carrier = $this->installExternalCarrier($config);
+        // Gets the WebServices response.
+        $token = 'E8BA248DR1E1FR4912R850CRC6255174690E';
+        $service_url = 'http://api.frenet.com.br/v1/Shipping/GetShippingServicesAvailable?token=' . $token;
+
+        $curl = curl_init();
+        curl_setopt($curl, CURLOPT_URL, $service_url);
+        curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+        $curl_response = curl_exec($curl);
+        curl_close($curl);
+
+        $response = json_decode($curl_response);
+
+        if ( 'yes' == $this->debug ) {
+            $this->addLog( "GetShippingServicesAvailable: " . $curl_response);
+        }
+
+        if ( isset( $response->ShippingSeviceAvailableArray ) ) {
+            if(count($response->ShippingSeviceAvailableArray)==1)
+                $servicosArray[0] = $response->ShippingSeviceAvailableArray;
+            else
+                $servicosArray = $response->ShippingSeviceAvailableArray;
+
+            if(!empty($servicosArray))
+            {
+                foreach($servicosArray as $servicos){
+
+                    if (!isset($servicos->ServiceCode) || $servicos->ServiceCode . '' == '') {
+                        continue;
+                    }
+
+                    $code = (string) $servicos->ServiceCode;
+                    $serviceDescription = $servicos->ServiceDescription;
+
+
+                    if ( 'yes' == $this->debug ) {
+                        $this->addLog( "code: " . $code);
+                        $this->addLog( "serviceDescription: " . $serviceDescription);
+                    }
+
+                    $config = array(
+                        'name' => $serviceDescription,
+                        'id_tax_rules_group' => 0,
+                        'active' => true,
+                        'deleted' => 0,
+                        'shipping_handling' => false,
+                        'range_behavior' => 0,
+                        'delay' => array("br" => "Prazo de Entrega"),
+                        'id_zone' => 1,
+                        'is_module' => true,
+                        'shipping_external' => true,
+                        'cdfrenet' => $this->_moduleName . "_" . $code,
+                        'external_module_name' => $this->_moduleName,
+                        'need_range' => true
+                    );
+                    $id_carrier = $this->installExternalCarrier($config);
+                }
+            }
+        }
 
     }
 
@@ -134,6 +196,7 @@ class Frenet extends CarrierModule
         $carrier->is_module = $config['is_module'];
         $carrier->shipping_external = $config['shipping_external'];
         $carrier->external_module_name = $config['external_module_name'];
+        $carrier->cdfrenet = $config['cdfrenet'];
         $carrier->need_range = $config['need_range'];
 
         $languages = Language::getLanguages(true);
@@ -143,6 +206,8 @@ class Frenet extends CarrierModule
 
         if ($carrier->add())
         {
+            Db::getInstance()->update('carrier', array('cdfrenet'=> $carrier->cdfrenet), 'id_carrier = '.(int)($carrier->id) );
+
             $groups = Group::getGroups(true);
             foreach ($groups as $group)
                 Db::getInstance()->autoExecute(_DB_PREFIX_.'carrier_group', array('id_carrier' => (int)($carrier->id), 'id_group' => (int)($group['id_group'])), 'INSERT');
@@ -168,7 +233,7 @@ class Frenet extends CarrierModule
             }
 
             // Copy Logo
-            if (!copy(dirname(__FILE__).'/logo_frenet.png', _PS_SHIP_IMG_DIR_.'/'.(int)$carrier->id.'.jpg'))
+            if (!copy(dirname(__FILE__).'/logo.png', _PS_SHIP_IMG_DIR_.'/'.(int)$carrier->id.'.jpg'))
                 return false;
 
             Configuration::updateValue('FRENET_CARRIER_ID', (int)$carrier->id);
@@ -273,9 +338,21 @@ class Frenet extends CarrierModule
         $sCepDestino = preg_replace("/([^0-9])/", "", $address->postcode);
         $nVlPeso= (string) $params->getTotalWeight();
 
-        //$custoFrete =  (float)$this->id_carrier;
 
-        $custoFrete = $this->frenet_calculate_json($params);
+        $carrier = new Carrier((int)$this->id_carrier);
+        $cdfrenet = $carrier->cdfrenet;
+        $cdfrenet = str_replace("frenet_","",$cdfrenet);
+
+        if ( 'yes' == $this->debug ) {
+            $this->addLog( "Código Frenet: " . $carrier->cdfrenet);
+        }
+
+        $custoFrete = $this->frenet_calculate_json($params, $cdfrenet);
+
+        if ( 'yes' == $this->debug ) {
+            $this->addLog( "CUSTO FRENET RETORNADO: " . $custoFrete);
+        }
+
 
         if ($custoFrete === false || $custoFrete === 0.0)
             return false;
@@ -293,15 +370,13 @@ class Frenet extends CarrierModule
     }
 
 
-    protected function frenet_calculate_json( $params ){
+    protected function frenet_calculate_json( $params, $cdfrenet ){
         $shippingPrice = 0;
         $values = array();
         try
         {
             $RecipientCEP = '';
             $RecipientCountry='BR';
-
-//$this->id_carrier
 
             // Se o cliente esta logado
             if ($this->context->customer->isLogged()) {
@@ -355,7 +430,7 @@ class Frenet extends CarrierModule
                 $qty = $product['quantity'];
 
                 if ( 'yes' == $this->debug ) {
-                    $this->addLog(  'Product: ' . print_r($product, true));
+                    // $this->addLog(  'Product: ' . print_r($product, true));
                 }
 
                 $shippingItem = new stdClass();
@@ -415,7 +490,8 @@ class Frenet extends CarrierModule
                 'RecipientDocument' => '',
                 'ShipmentInvoiceValue' => $shipmentInvoiceValue,
                 'ShippingItemArray' => $shippingItemArray,
-                'RecipientCountry' => $RecipientCountry
+                'RecipientCountry' => $RecipientCountry,
+                'ShippingServiceCode' => $cdfrenet
             );
 
             // Gets the WebServices response.
@@ -433,6 +509,10 @@ class Frenet extends CarrierModule
 
             $response = json_decode($curl_response);
 
+            if ( 'yes' == $this->debug ) {
+                $this->addLog( "GetShippingQuote: " . $curl_response);
+            }
+
             if ( isset( $response->ShippingSevicesArray ) ) {
                 if(count($response->ShippingSevicesArray)==1)
                     $servicosArray[0] = $response->ShippingSevicesArray;
@@ -447,20 +527,12 @@ class Frenet extends CarrierModule
                             $this->addLog(  'Percorrendo os serviços retornados');
                         }
 
-                        if (!isset($servicos->ServiceCode) || $servicos->ServiceCode . '' == '' || !isset($servicos->ShippingPrice)) {
+                        if (!isset($servicos[0]->ServiceCode) || $servicos[0]->ServiceCode . '' == '' || !isset($servicos[0]->ShippingPrice)) {
                             continue;
                         }
 
-                        $code = (string) $servicos->ServiceCode;
-
-                        if ( 'yes' == $this->debug ) {
-                            $this->addLog(  'WebServices response [' . $servicos->ServiceDescription . ']: ' . print_r( $servicos, true ) );
-                        }
-
-                        $values[ $code ] = $servicos;
-
                         /*** TODO ***/
-                        $shippingPrice = $servicos->ShippingPrice;
+                        $shippingPrice = $servicos[0]->ShippingPrice;
                         break;
                     }
                 }
@@ -471,6 +543,10 @@ class Frenet extends CarrierModule
             if ( 'yes' == $this->debug ) {
                 $this->addLog(  var_dump($e->getMessage()));
             }
+        }
+
+        if ( 'yes' == $this->debug ) {
+            $this->addLog(  'VAI RETORNAR ' . $shippingPrice);
         }
 
         return (float)$shippingPrice;
