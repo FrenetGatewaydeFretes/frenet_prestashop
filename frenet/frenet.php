@@ -38,12 +38,14 @@ class Frenet extends CarrierModule
     private $postErrors = array();
     private $_moduleName = 'frenet';
 
-    private $debug='yes';
+    private $debug='no';
 
     private $minimum_height=2;
     private $minimum_width=11;
     private $minimum_length=16;
     private $minimum_weight=1;
+
+    private $prazoEntrega = array();
 
     public function __construct()
     {
@@ -78,16 +80,16 @@ class Frenet extends CarrierModule
         if(!$this->maybeUpdateDatabase())
             return false;
 
-        $this->installCarriers();
-
-        if (parent::install() == false or
-            $this->registerHook('updateCarrier') == false or
-            $this->registerHook('extraCarrier') == false or
-            $this->registerHook('beforeCarrier') == false)
+        if (!parent::install()
+            or !$this->registerHook('displayBeforeCarrier'))
             return false;
 
         if (!Configuration::hasKey('FRENET_SELLER_CEP')) {
             Configuration::updateValue('FRENET_SELLER_CEP', '');
+        }
+
+        if (!Configuration::hasKey('FRENET_TOKEN')) {
+            Configuration::updateValue('FRENET_TOKEN', '');
         }
 
         return true;
@@ -95,35 +97,73 @@ class Frenet extends CarrierModule
 
     //function used to upgrade the Carrier table
     private function maybeUpdateDatabase(){
-        $sql = 'DESCRIBE '._DB_PREFIX_. 'carrier';
-        $columns = Db::getInstance()->executeS($sql);
-        $found = false;
-        foreach($columns as $col){
-            if($col['Field']=='cdfrenet'){
-                $found = true;
-                break;
+        $ret = false;
+        try
+        {
+            $sql = 'DESCRIBE '._DB_PREFIX_. 'carrier';
+            $columns = Db::getInstance()->executeS($sql);
+            $found = false;
+            foreach($columns as $col){
+                if($col['Field']=='cdfrenet'){
+                    $found = true;
+                    break;
+                }
             }
+            if(!$found){
+                Db::getInstance()->execute('ALTER TABLE `'._DB_PREFIX_. 'carrier' .'` ADD `cdfrenet` VARCHAR(64) NULL');
+            }
+            $ret = true;
         }
-        if(!$found){
-            Db::getInstance()->execute('ALTER TABLE `'._DB_PREFIX_. 'carrier' .'` ADD `cdfrenet` VARCHAR(64) NULL');
+        catch (Exception $e)
+        {
+            if ( 'yes' == $this->debug ) {
+                $this->addLog(  var_dump($e->getMessage()));
+            }
+            $this->_errors[] = $this->l('Erro ao instalar transportadoras ' . var_dump($e->getMessage()));
         }
-        return true;
+
+        return $ret;
     }
 
     public function uninstall()
     {
-        if (!parent::uninstall() ||
-            !Configuration::deleteByName('FRENET_SELLER_CEP'))
+        if (!parent::uninstall()
+            or !Configuration::deleteByName('FRENET_SELLER_CEP')
+            or !Configuration::deleteByName('FRENET_TOKEN')
+            or !$this->unregisterHook('displayBeforeCarrier'))
             return false;
 
+        // Exclui transportadoras
+        $this->uninstallCarriers();
+
         return true;
+    }
+
+    private function uninstallCarriers()
+    {
+        try
+        {
+            // Exclui as tabelas
+            $sql = "DELETE FROM "._DB_PREFIX_."CARRIER WHERE CDFRENET > '' ;";
+            Db::getInstance()->execute($sql);
+        }
+        catch (Exception $e)
+        {
+            if ( 'yes' == $this->debug ) {
+                $this->addLog(  var_dump($e->getMessage()));
+            }
+        }
     }
 
     public function installCarriers()
     {
         // Gets the WebServices response.
-        $token = 'E8BA248DR1E1FR4912R850CRC6255174690E';
+        $token = Configuration::get('FRENET_TOKEN');
         $service_url = 'http://api.frenet.com.br/v1/Shipping/GetShippingServicesAvailable?token=' . $token;
+
+        if ( 'yes' == $this->debug ) {
+            $this->addLog( "installCarriers: " . $service_url);
+        }
 
         $curl = curl_init();
         curl_setopt($curl, CURLOPT_URL, $service_url);
@@ -153,7 +193,7 @@ class Frenet extends CarrierModule
 
                     $code = (string) $servicos->ServiceCode;
                     $serviceDescription = $servicos->ServiceDescription;
-
+                    $carrierCode = $servicos->CarrierCode;
 
                     if ( 'yes' == $this->debug ) {
                         $this->addLog( "code: " . $code);
@@ -172,6 +212,7 @@ class Frenet extends CarrierModule
                         'is_module' => true,
                         'shipping_external' => true,
                         'cdfrenet' => $this->_moduleName . "_" . $code,
+                        'carrierCode' => $carrierCode,
                         'external_module_name' => $this->_moduleName,
                         'need_range' => true
                     );
@@ -232,11 +273,13 @@ class Frenet extends CarrierModule
                 Db::getInstance()->autoExecuteWithNullValues(_DB_PREFIX_.'delivery', array('id_carrier' => (int)($carrier->id), 'id_range_price' => NULL, 'id_range_weight' => (int)($rangeWeight->id), 'id_zone' => (int)($zone['id_zone']), 'price' => '0'), 'INSERT');
             }
 
-            // Copy Logo
-            if (!copy(dirname(__FILE__).'/logo.png', _PS_SHIP_IMG_DIR_.'/'.(int)$carrier->id.'.jpg'))
-                return false;
-
             Configuration::updateValue('FRENET_CARRIER_ID', (int)$carrier->id);
+
+            // Copy Logo
+            //if (!copy(dirname(__FILE__).'/logo.png', _PS_SHIP_IMG_DIR_.'/'.(int)$carrier->id.'.jpg'))
+            //    return false;
+            if(isset($config['carrierCode']))
+                copy('https://s3-sa-east-1.amazonaws.com/painel.frenet.com.br/Content/images/' . $config['carrierCode'] . '.png', _PS_SHIP_IMG_DIR_.'/'.(int)$carrier->id.'.jpg');
 
             // Return ID Carrier
             return (int)($carrier->id);
@@ -259,8 +302,21 @@ class Frenet extends CarrierModule
             else
             {
                 Configuration::updateValue('FRENET_SELLER_CEP', $seller_cep);
-                $output .= $this->displayConfirmation($this->l('Settings updated'));
             }
+
+            $token = strval(Tools::getValue('FRENET_TOKEN'));
+            if (!$token
+                || empty($token)
+                || !Validate::isGenericName($token))
+                $output .= $this->displayError($this->l('Invalid Configuration value'));
+            else
+            {
+                Configuration::updateValue('FRENET_TOKEN', $token);
+                $this->uninstallCarriers();
+                $this->installCarriers();
+            }
+
+            $output .= $this->displayConfirmation($this->l('Settings updated'));
         }
         return $output.$this->displayForm();
     }
@@ -281,6 +337,13 @@ class Frenet extends CarrierModule
                     'label' => $this->l('CEP origem'),
                     'name' => 'FRENET_SELLER_CEP',
                     'size' => 9,
+                    'required' => true
+                ),
+                array(
+                    'type' => 'text',
+                    'label' => $this->l('Token de acesso'),
+                    'name' => 'FRENET_TOKEN',
+                    'size' => 15,
                     'required' => true
                 )
             ),
@@ -322,6 +385,7 @@ class Frenet extends CarrierModule
 
         // Load current value
         $helper->fields_value['FRENET_SELLER_CEP'] = Configuration::get('FRENET_SELLER_CEP');
+        $helper->fields_value['FRENET_TOKEN'] = Configuration::get('FRENET_TOKEN');
 
         return $helper->generateForm($fields_form);
     }
@@ -347,12 +411,15 @@ class Frenet extends CarrierModule
             $this->addLog( "Código Frenet: " . $carrier->cdfrenet);
         }
 
-        $custoFrete = $this->frenet_calculate_json($params, $cdfrenet);
+        $values = $this->frenet_calculate_json($params, $cdfrenet);
 
-        if ( 'yes' == $this->debug ) {
-            $this->addLog( "CUSTO FRENET RETORNADO: " . $custoFrete);
-        }
+        // prazo de entrega
+        if(isset($values['deliveryTime']))
+            $this->prazoEntrega[$this->id_carrier] = $values['deliveryTime'];
 
+        $custoFrete=0.0;
+        if(isset($values['shippingPrice']))
+            $custoFrete = (float)$values['shippingPrice'];
 
         if ($custoFrete === false || $custoFrete === 0.0)
             return false;
@@ -484,7 +551,7 @@ class Frenet extends CarrierModule
             }
 
             $service_param = array (
-                'Token' => 'E8BA248DR1E1FR4912R850CRC6255174690E',
+                'Token' => Configuration::get('FRENET_TOKEN'),
                 'SellerCEP' => $cepOrigem = trim(preg_replace("/[^0-9]/", "", Configuration::get('FRENET_SELLER_CEP'))),
                 'RecipientCEP' => $RecipientCEP,
                 'RecipientDocument' => '',
@@ -531,8 +598,20 @@ class Frenet extends CarrierModule
                             continue;
                         }
 
-                        /*** TODO ***/
+                        $deliveryTime=0;
+                        if(isset($shipping->ServiceDescription) )
+                            $label=$shipping->ServiceDescription;
+
+                        if (isset($servicos[0]->DeliveryTime))
+                            $deliveryTime=$servicos[0]->DeliveryTime;
+
                         $shippingPrice = $servicos[0]->ShippingPrice;
+
+                        $values = array(
+                            'deliveryTime'  => $deliveryTime,
+                            'shippingPrice'    => $shippingPrice,
+                        );
+
                         break;
                     }
                 }
@@ -545,11 +624,7 @@ class Frenet extends CarrierModule
             }
         }
 
-        if ( 'yes' == $this->debug ) {
-            $this->addLog(  'VAI RETORNAR ' . $shippingPrice);
-        }
-
-        return (float)$shippingPrice;
+        return $values;
 
     }
 
@@ -564,6 +639,53 @@ class Frenet extends CarrierModule
         $value = str_replace( ',', '.', $value );
 
         return $value;
+    }
+
+    public function hookDisplayBeforeCarrier($params) {
+
+        if ( 'yes' == $this->debug ) {
+            $this->addLog("hookDisplayBeforeCarrier " );
+        }
+
+        if (!isset($this->context->smarty->tpl_vars['delivery_option_list'])) {
+            return;
+        }
+
+        $delivery_option_list = $this->context->smarty->tpl_vars['delivery_option_list'];
+
+        foreach ($delivery_option_list->value as $id_address) {
+
+            foreach ($id_address as $key) {
+
+                foreach ($key['carrier_list'] as $id_carrier) {
+
+                    if (isset($this->prazoEntrega[$id_carrier['instance']->id])) {
+
+                        if (is_numeric($this->prazoEntrega[$id_carrier['instance']->id])) {
+
+                            if ($this->prazoEntrega[$id_carrier['instance']->id] == 0) {
+                                $msg = $this->l('entrega no mesmo dia');
+                            }else {
+                                if ($this->prazoEntrega[$id_carrier['instance']->id] > 1) {
+                                    $msg = 'entrega em até '.$this->prazoEntrega[$id_carrier['instance']->id].$this->l(' dias úteis');
+                                }else {
+                                    $msg = 'entrega em '.$this->prazoEntrega[$id_carrier['instance']->id].$this->l(' dia útil');
+                                }
+                            }
+                        }else {
+                            $msg = $this->prazoEntrega[$id_carrier['instance']->id];
+                        }
+
+                        if ( 'yes' == $this->debug ) {
+                            $this->addLog("PRAZO: " . $msg );
+                        }
+
+                        $id_carrier['instance']->delay[$this->context->cart->id_lang] = $msg;
+                    }
+                }
+            }
+        }
+
     }
 }
 
