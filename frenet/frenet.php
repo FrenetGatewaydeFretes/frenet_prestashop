@@ -67,6 +67,10 @@ class Frenet extends CarrierModule
 
         if (!Configuration::get('FRENET_SELLER_CEP'))
             $this->warning = $this->l('No CEP provided');
+
+        if(Configuration::get('FRENET_DEBUG'))
+            $this->debug = Configuration::get('FRENET_DEBUG');
+
     }
 
     function install() {
@@ -90,6 +94,10 @@ class Frenet extends CarrierModule
 
         if (!Configuration::hasKey('FRENET_TOKEN')) {
             Configuration::updateValue('FRENET_TOKEN', '');
+        }
+
+        if (!Configuration::hasKey('FRENET_DEBUG')) {
+            Configuration::updateValue('FRENET_DEBUG', 'no');
         }
 
         return true;
@@ -130,6 +138,7 @@ class Frenet extends CarrierModule
         if (!parent::uninstall()
             or !Configuration::deleteByName('FRENET_SELLER_CEP')
             or !Configuration::deleteByName('FRENET_TOKEN')
+            or !Configuration::deleteByName('FRENET_DEBUG')
             or !$this->unregisterHook('displayBeforeCarrier'))
             return false;
 
@@ -304,6 +313,16 @@ class Frenet extends CarrierModule
                 Configuration::updateValue('FRENET_SELLER_CEP', $seller_cep);
             }
 
+            $debug = strval(Tools::getValue('FRENET_DEBUG'));
+            if (!$debug
+                || empty($debug)
+                || !Validate::isGenericName($debug))
+                $output .= $this->displayError($this->l('Invalid Configuration value'));
+            else
+            {
+                Configuration::updateValue('FRENET_DEBUG', $debug);
+            }
+
             $token = strval(Tools::getValue('FRENET_TOKEN'));
             if (!$token
                 || empty($token)
@@ -326,6 +345,17 @@ class Frenet extends CarrierModule
         // Get default language
         $default_lang = (int)Configuration::get('PS_LANG_DEFAULT');
 
+        $options = array(
+            array(
+                'id_option' => 'yes',
+                'name' => $this->l('yes')
+            ),
+            array(
+                'id_option' => 'no',
+                'name' => $this->l('no')
+            ),
+        );
+
         // Init Fields form array
         $fields_form[0]['form'] = array(
             'legend' => array(
@@ -345,6 +375,17 @@ class Frenet extends CarrierModule
                     'name' => 'FRENET_TOKEN',
                     'size' => 15,
                     'required' => true
+                ),
+                array(
+                    'type' => 'select',
+                    'label' => $this->l('Debug'),
+                    'name' => 'FRENET_DEBUG',
+                    'required' => true,
+                    'options' => array(
+                        'query' => $options,
+                        'id' => 'id_option',
+                        'name' => 'name'
+                    )
                 )
             ),
             'submit' => array(
@@ -385,6 +426,7 @@ class Frenet extends CarrierModule
 
         // Load current value
         $helper->fields_value['FRENET_SELLER_CEP'] = Configuration::get('FRENET_SELLER_CEP');
+        $helper->fields_value['FRENET_DEBUG'] = Configuration::get('FRENET_DEBUG');
         $helper->fields_value['FRENET_TOKEN'] = Configuration::get('FRENET_TOKEN');
 
         return $helper->generateForm($fields_form);
@@ -417,11 +459,11 @@ class Frenet extends CarrierModule
         if(isset($values['deliveryTime']))
             $this->prazoEntrega[$this->id_carrier] = $values['deliveryTime'];
 
-        $custoFrete=0.0;
+        $custoFrete=-1;
         if(isset($values['shippingPrice']))
             $custoFrete = (float)$values['shippingPrice'];
 
-        if ($custoFrete === false || $custoFrete === 0.0)
+        if ($custoFrete === false || $custoFrete === -1)
             return false;
 
         return $custoFrete + $shipping_cost;
@@ -438,7 +480,7 @@ class Frenet extends CarrierModule
 
 
     protected function frenet_calculate_json( $params, $cdfrenet ){
-        $shippingPrice = 0;
+        $shippingPrice = -1;
         $values = array();
         try
         {
@@ -594,7 +636,7 @@ class Frenet extends CarrierModule
                             $this->addLog(  'Percorrendo os serviços retornados');
                         }
 
-                        if (!isset($servicos[0]->ServiceCode) || $servicos[0]->ServiceCode . '' == '' || !isset($servicos[0]->ShippingPrice)) {
+                        if (!is_array($servicos) || !isset($servicos[0]->ServiceCode) || $servicos[0]->ServiceCode . '' == '' || !isset($servicos[0]->ShippingPrice)) {
                             continue;
                         }
 
