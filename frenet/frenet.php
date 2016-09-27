@@ -153,7 +153,7 @@ class Frenet extends CarrierModule
         try
         {
             // Exclui as tabelas
-            $sql = "DELETE FROM "._DB_PREFIX_."CARRIER WHERE CDFRENET > '' ;";
+            $sql = "delete from "._DB_PREFIX_."carrier where cdfrenet > '' ;";
             Db::getInstance()->execute($sql);
         }
         catch (Exception $e)
@@ -604,15 +604,18 @@ class Frenet extends CarrierModule
             );
 
             // Gets the WebServices response.
-            $service_url = 'http://api.frenet.com.br/v1/Shipping/GetShippingQuote?data=' . json_encode($service_param);
-
+            $service_url = 'http://api.frenet.com.br/v1/Shipping/GetShippingQuote?data=';
+            $data_string = json_encode($service_param);
+            $service_url = $service_url . urlencode($data_string);
             if ( 'yes' == $this->debug ) {
                 $this->addLog(  'url: ' . $service_url);
             }
 
             $curl = curl_init();
+
+            curl_setopt($curl, CURLOPT_HEADER, 0);
             curl_setopt($curl, CURLOPT_URL, $service_url);
-            curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
             $curl_response = curl_exec($curl);
             curl_close($curl);
 
