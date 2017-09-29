@@ -687,51 +687,45 @@ class Frenet extends CarrierModule
     }
 
     public function hookDisplayBeforeCarrier($params) {
-
-        if ( 'yes' == $this->debug ) {
-            $this->addLog("hookDisplayBeforeCarrier " );
-        }
-
-        if (!isset($this->context->smarty->tpl_vars['delivery_option_list'])) {
+        if (null == $this->context->cart->getDeliveryOptionList()) {
             return;
         }
 
-        $delivery_option_list = $this->context->smarty->tpl_vars['delivery_option_list'];
+        $delivery_option_list = $this->context->cart->getDeliveryOptionList();
 
-        foreach ($delivery_option_list->value as $id_address) {
+        foreach($delivery_option_list as $id_address => $carrier_list_raw) {
+            foreach($carrier_list_raw as $key => $carrier_list) {
+                foreach($carrier_list['carrier_list'] as $id_carrier => $carrier) {
 
-            foreach ($id_address as $key) {
+                    $msg = "não disponível";
+                    if (isset($this->prazoEntrega[$carrier['instance']->id])) {
+                        if (is_numeric($this->prazoEntrega[$carrier['instance']->id])) {
 
-                foreach ($key['carrier_list'] as $id_carrier) {
-
-                    if (isset($this->prazoEntrega[$id_carrier['instance']->id])) {
-
-                        if (is_numeric($this->prazoEntrega[$id_carrier['instance']->id])) {
-
-                            if ($this->prazoEntrega[$id_carrier['instance']->id] == 0) {
+                            if ($this->prazoEntrega[$carrier['instance']->id] == 0) {
                                 $msg = $this->l('entrega no mesmo dia');
                             }else {
-                                if ($this->prazoEntrega[$id_carrier['instance']->id] > 1) {
-                                    $msg = 'entrega em até '.$this->prazoEntrega[$id_carrier['instance']->id].$this->l(' dias úteis');
+                                if ($this->prazoEntrega[$carrier['instance']->id] > 1) {
+                                    $msg = 'entrega em até '.$this->prazoEntrega[$carrier['instance']->id].$this->l(' dias úteis');
                                 }else {
-                                    $msg = 'entrega em '.$this->prazoEntrega[$id_carrier['instance']->id].$this->l(' dia útil');
+                                    $msg = 'entrega em '.$this->prazoEntrega[$carrier['instance']->id].$this->l(' dia útil');
                                 }
                             }
                         }else {
-                            $msg = $this->prazoEntrega[$id_carrier['instance']->id];
+                            $msg = $this->prazoEntrega[$carrier['instance']->id];
                         }
-
-                        if ( 'yes' == $this->debug ) {
-                            $this->addLog("PRAZO: " . $msg );
-                        }
-
-                        $id_carrier['instance']->delay[$this->context->cart->id_lang] = $msg;
                     }
+
+                    if ( 'yes' == $this->debug ) {
+                        $this->addLog("PRAZO: " . $msg );
+                    }
+
+                    $carrier['instance']->delay[$this->context->cart->id_lang] = $msg;
+
                 }
             }
         }
-
     }
+
 }
 
 ?>
