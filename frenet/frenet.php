@@ -478,6 +478,18 @@ class Frenet extends CarrierModule
         return $this->getOrderShippingCost($params, 0);
     }
 
+    /**
+     * Carregar o código do cupom se não existir retornar nulo
+     * @param type $cartRules
+     * @return type codigo do cupom 
+     */
+    protected function getCoupon($cartRules) {
+        $coupon = null;
+        if (count($cartRules) > 0 &&  in_array( "code", array_keys( $cartRules[0] ) ) ) {
+            $coupon = $cartRules[0]["code"];
+        }
+        return $coupon;
+    }
 
     protected function frenet_calculate_json( $params, $cdfrenet ){
         $shippingPrice = -1;
@@ -486,6 +498,8 @@ class Frenet extends CarrierModule
         {
             $RecipientCEP = '';
             $RecipientCountry='BR';
+            
+            $Coupon = $this->getCoupon($params->getCartRules());
 
             // Se o cliente esta logado
             if ($this->context->customer->isLogged()) {
@@ -594,6 +608,9 @@ class Frenet extends CarrierModule
 
             $service_param = array (
                 'Token' => Configuration::get('FRENET_TOKEN'),
+                'Coupom' => $Coupon,
+                'PlatformName' => 'Prestashop',// Identificar que está foi uma chamada do prestashop
+                'PlatformVersion' => _PS_VERSION_,// Identificar que está foi uma chamada do prestashop
                 'SellerCEP' => $cepOrigem = trim(preg_replace("/[^0-9]/", "", Configuration::get('FRENET_SELLER_CEP'))),
                 'RecipientCEP' => $RecipientCEP,
                 'RecipientDocument' => '',
