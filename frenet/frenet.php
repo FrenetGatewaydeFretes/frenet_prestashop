@@ -122,7 +122,7 @@ class Frenet extends CarrierModule
             }
             $ret = true;
         }
-        catch (Exception $e)
+        catch (\Exception $e)
         {
             if ( 'yes' == $this->debug ) {
                 $this->addLog(  var_dump($e->getMessage()));
@@ -156,7 +156,7 @@ class Frenet extends CarrierModule
             $sql = "delete from "._DB_PREFIX_."carrier where cdfrenet > '' ;";
             Db::getInstance()->execute($sql);
         }
-        catch (Exception $e)
+        catch (\Exception $e)
         {
             if ( 'yes' == $this->debug ) {
                 $this->addLog(  var_dump($e->getMessage()));
@@ -166,9 +166,10 @@ class Frenet extends CarrierModule
 
     public function installCarriers()
     {
+
         // Gets the WebServices response.
         $token = Configuration::get('FRENET_TOKEN');
-        $service_url = 'http://api.frenet.com.br/v1/Shipping/GetShippingServicesAvailable?token=' . $token;
+        $service_url = 'http://api-hml.frenet.com.br/v1/Shipping/GetShippingServicesAvailable?token=' . $token;
 
         if ( 'yes' == $this->debug ) {
             $this->addLog( "installCarriers: " . $service_url);
@@ -194,15 +195,18 @@ class Frenet extends CarrierModule
 
             if(!empty($servicosArray))
             {
+                $this->addLog( "installCarriers count: " . count($servicosArray));
+
                 foreach($servicosArray as $servicos){
 
+                    $serviceDescription = $servicos->ServiceDescription;
+                    $carrierCode = $servicos->CarrierCode;                    
+                    $code = (string) $servicos->ServiceCode;
+                    
                     if (!isset($servicos->ServiceCode) || $servicos->ServiceCode . '' == '') {
+                        $this->addLog( "installCarriers code: " . $code . "; description: " . $serviceDescription . " carrier: " . $carrierCode);
                         continue;
                     }
-
-                    $code = (string) $servicos->ServiceCode;
-                    $serviceDescription = $servicos->ServiceDescription;
-                    $carrierCode = $servicos->CarrierCode;
 
                     if ( 'yes' == $this->debug ) {
                         $this->addLog( "code: " . $code);
@@ -225,14 +229,24 @@ class Frenet extends CarrierModule
                         'external_module_name' => $this->_moduleName,
                         'need_range' => true
                     );
-                    $id_carrier = $this->installExternalCarrier($config);
-                }
+                    try {                        
+                        $id_carrier = $this->installExternalCarrier($config, $this);
+                        $this->addLog( "installExternalCarrier config: " . $config);
+                    }
+                    catch(\Exception $e) {
+                        $this->addLog( "error_config: " . var_dump($config) );
+                        
+                        $this->addLog( "installCarriers_exception: " . $e->getMessage() );
+                        //$this->addLog( "installCarriers_exception: " . $e.getMessage());
+                    }
+                    
+                }// fim do foreach
             }
         }
 
     }
 
-    public static function installExternalCarrier($config)
+    public static function installExternalCarrier($config, $frenet)
     {
         $carrier = new Carrier();
         $carrier->name = $config['name'];
@@ -248,20 +262,44 @@ class Frenet extends CarrierModule
         $carrier->external_module_name = $config['external_module_name'];
         $carrier->cdfrenet = $config['cdfrenet'];
         $carrier->need_range = $config['need_range'];
-
+        
+        if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 01"); }
+        
         $languages = Language::getLanguages(true);
+
         foreach ($languages as $language) {
-            $carrier->delay[(int) $language['id_lang']] = $config['delay']['br'];
+            $langId = (int) $language['id_lang'];
+            $carrier->delay[$langId] = $config['delay']['br'];
         }
+
+        if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 02"); }
 
         if ($carrier->add())
         {
+            $db = DB::getInstance();
+
+            if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 03"); }
+
             Db::getInstance()->update('carrier', array('cdfrenet'=> $carrier->cdfrenet), 'id_carrier = '.(int)($carrier->id) );
 
-            $groups = Group::getGroups(true);
-            foreach ($groups as $group)
-                Db::getInstance()->autoExecute(_DB_PREFIX_.'carrier_group', array('id_carrier' => (int)($carrier->id), 'id_group' => (int)($group['id_group'])), 'INSERT');
+            if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 04"); }
 
+            $groups = Group::getGroups(true);
+
+            foreach ($groups as $group) {
+                
+                try {
+                    if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 05 id before:" . $sqlCmd); }
+                    $rs = Db::getInstance()->insert('carrier_group', array('id_carrier' => (int)($carrier->id), 'id_group' => (int)($group['id_group'])) );
+                    if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 05A id after:" . $rs ); }
+                    if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 05B id after:" . $carrier->id . "; group: " . $group['id_group'] ); }
+                }
+                catch(\Exception $e) { 
+                    if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 05 exception: " . var_dump($e->getMessage() ) ); }
+                }
+                
+            }
+            
             $rangePrice = new RangePrice();
             $rangePrice->id_carrier = $carrier->id;
             $rangePrice->delimiter1 = '0';
@@ -277,12 +315,24 @@ class Frenet extends CarrierModule
             $zones = Zone::getZones(true);
             foreach ($zones as $zone)
             {
-                Db::getInstance()->autoExecute(_DB_PREFIX_.'carrier_zone', array('id_carrier' => (int)($carrier->id), 'id_zone' => (int)($zone['id_zone'])), 'INSERT');
-                Db::getInstance()->autoExecuteWithNullValues(_DB_PREFIX_.'delivery', array('id_carrier' => (int)($carrier->id), 'id_range_price' => (int)($rangePrice->id), 'id_range_weight' => NULL, 'id_zone' => (int)($zone['id_zone']), 'price' => '0'), 'INSERT');
-                Db::getInstance()->autoExecuteWithNullValues(_DB_PREFIX_.'delivery', array('id_carrier' => (int)($carrier->id), 'id_range_price' => NULL, 'id_range_weight' => (int)($rangeWeight->id), 'id_zone' => (int)($zone['id_zone']), 'price' => '0'), 'INSERT');
+                if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 06 id before:" . $carrier->id); }
+                Db::getInstance()->insert('carrier_zone', array('id_carrier' => (int)($carrier->id), 'id_zone' => (int)($zone['id_zone'])) );
+                if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 06 id after:" . $carrier->id); }
+                
+                if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 07 id before:" . $carrier->id); }
+                Db::getInstance()->insert('delivery', array('id_carrier' => (int)($carrier->id), 'id_range_price' => (int)($rangePrice->id), 'id_range_weight' => NULL, 'id_zone' => (int)($zone['id_zone']), 'price' => '0') );
+                if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 07 id after:" . $carrier->id); }
+
+                if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 08 id before:" . $carrier->id); }
+                Db::getInstance()->insert('delivery', array('id_carrier' => (int)($carrier->id), 'id_range_price' => NULL, 'id_range_weight' => (int)($rangeWeight->id), 'id_zone' => (int)($zone['id_zone']), 'price' => '0') );
+                if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 08 id after:" . $carrier->id); }
             }
 
+            if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 09"); }
+
             Configuration::updateValue('FRENET_CARRIER_ID', (int)$carrier->id);
+
+            if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 10"); }
 
             // Copy Logo
             //if (!copy(dirname(__FILE__).'/logo.png', _PS_SHIP_IMG_DIR_.'/'.(int)$carrier->id.'.jpg'))
@@ -290,10 +340,12 @@ class Frenet extends CarrierModule
             if(isset($config['carrierCode']))
                 copy('https://s3-sa-east-1.amazonaws.com/painel.frenet.com.br/Content/images/' . $config['carrierCode'] . '.png', _PS_SHIP_IMG_DIR_.'/'.(int)$carrier->id.'.jpg');
 
+            if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 11"); }
             // Return ID Carrier
             return (int)($carrier->id);
         }
 
+        if (isset($frenet) && 'yes' == $frenet->debug) { $frenet->addLog("installExternalCarrier 12"); }
         return false;
     }
 
@@ -621,7 +673,7 @@ class Frenet extends CarrierModule
             );
 
             // Gets the WebServices response.
-            $service_url = 'http://api.frenet.com.br/v1/Shipping/GetShippingQuote?data=';
+            $service_url = 'http://api-hml.frenet.com.br/v1/Shipping/GetShippingQuote?data=';
             $data_string = json_encode($service_param);
             $service_url = $service_url . urlencode($data_string);
             if ( 'yes' == $this->debug ) {
@@ -679,7 +731,7 @@ class Frenet extends CarrierModule
                 }
             }
         }
-        catch (Exception $e)
+        catch (\Exception $e)
         {
             if ( 'yes' == $this->debug ) {
                 $this->addLog(  var_dump($e->getMessage()));
