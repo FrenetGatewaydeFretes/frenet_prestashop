@@ -169,7 +169,7 @@ class Frenet extends CarrierModule
 
         // Gets the WebServices response.
         $token = Configuration::get('FRENET_TOKEN');
-        $service_url = 'http://api-hml.frenet.com.br/v1/Shipping/GetShippingServicesAvailable?token=' . $token;
+        $service_url = 'http://api.frenet.com.br/v1/Shipping/GetShippingServicesAvailable?token=' . $token;
 
         if ( 'yes' == $this->debug ) {
             $this->addLog( "installCarriers: " . $service_url);
@@ -672,7 +672,7 @@ class Frenet extends CarrierModule
             );
 
             // Gets the WebServices response.
-            $service_url = 'http://api-hml.frenet.com.br/v1/Shipping/GetShippingQuote?data=';
+            $service_url = 'http://api.frenet.com.br/v1/Shipping/GetShippingQuote?data=';
             $data_string = json_encode($service_param);
             $service_url = $service_url . urlencode($data_string);
             if ( 'yes' == $this->debug ) {
