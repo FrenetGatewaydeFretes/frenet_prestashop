@@ -741,10 +741,28 @@ class Frenet extends CarrierModule
 
     }
 
+    /**
+     * Record a debug message to a file inside of PrestaShop's default
+     * log dir, if it is writable
+     *
+     * @param $message
+     * @return bool
+     */
     private function addLog($message)
     {
+        $rootDir = _PS_ROOT_DIR_;
+
+        if (is_writable($rootDir . '/log/')) {
+            $rootDir .='/log/';
+        } else if (is_writable($rootDir . '/var/logs/')) {
+            $rootDir .='/var/logs/';
+        } else {
+            $this->context->controller->warnings[] = 'O diretório de logs do PrestaShop não possui permissão de escrita. A função debug permanecerá desativada.';
+
+            return false;
+        }
         $logger = new FileLogger(0); //0 == debug level, logDebug() won’t work without this.
-        $logger->setFilename(_PS_ROOT_DIR_."/log/debug.log");
+        $logger->setFilename($rootDir . 'frenet.log');
         $logger->logDebug($message);
     }
 
