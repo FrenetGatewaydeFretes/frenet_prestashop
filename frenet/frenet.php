@@ -627,10 +627,11 @@ class Frenet extends CarrierModule
                     if(empty($_weight) || $_weight < $this->minimum_weight)
                         $_weight = $this->minimum_weight;
 
-                    $shippingItem->Weight = $_weight * $qty;
+                    $shippingItem->Weight = $_weight ;
                     $shippingItem->Length = $_length;
                     $shippingItem->Height = $_height;
                     $shippingItem->Width = $_width;
+					$shippingItem->Quantity = $qty;
                     $shippingItem->Diameter = 0;
                     $shippingItem->SKU = $product['reference'];
 
