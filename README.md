@@ -14,7 +14,7 @@ Módulo Prestashop para calculo de frete utilizando o gateway de fretes Frenet.
 Requisitos
 ----------
 * PHP 5.3 (ou superior);
-* Prestashop 6.x
+* Prestashop 6.x (ou superior)
 
 ## Instalação ##
 
@@ -31,3 +31,9 @@ Requisitos
 
 * O módulo criará as Transportadoras / Serviços de entrega em sua loja Prestashop. Você pode verificar em Envio > Transportadoras. 
 > ATENÇÃO: Sempre que você configurar uma nova transportadora ou serviço de entrega no painel do Frenet você deve acessar o módulo e salvar novamente para que esta nova transportadora seja criada na plataforma Prestashop.
+
+## **Ultimas versões testadas**
+
+Ultimas versões:
+8.0.4: https://github.com/PrestaShop/PrestaShop/releases/tag/8.0.4
+1.7.8.9: https://github.com/PrestaShop/PrestaShop/releases/tag/1.7.8.9
