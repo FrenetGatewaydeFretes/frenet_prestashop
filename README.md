@@ -35,5 +35,5 @@ Requisitos
 ## **Ultimas versões testadas**
 
 Ultimas versões:
-8.0.4: https://github.com/PrestaShop/PrestaShop/releases/tag/8.0.4
-1.7.8.9: https://github.com/PrestaShop/PrestaShop/releases/tag/1.7.8.9
+* 8.0.4: https://github.com/PrestaShop/PrestaShop/releases/tag/8.0.4
+* 1.7.8.9: https://github.com/PrestaShop/PrestaShop/releases/tag/1.7.8.9
