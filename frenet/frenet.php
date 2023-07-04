@@ -40,10 +40,10 @@ class Frenet extends CarrierModule
 
     private $debug='no';
 
-    private $minimum_height=2;
-    private $minimum_width=11;
-    private $minimum_length=16;
-    private $minimum_weight=1;
+    private $minimum_height=1;
+    private $minimum_width=10;
+    private $minimum_length=15;
+    private $minimum_weight=0.001;
 
     private $prazoEntrega = array();
 
