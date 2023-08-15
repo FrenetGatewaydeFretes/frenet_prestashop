@@ -177,6 +177,7 @@ class Frenet extends CarrierModule
 
         $curl = curl_init();
         curl_setopt($curl, CURLOPT_URL, $service_url);
+		curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
         $curl_response = curl_exec($curl);
         curl_close($curl);
@@ -199,11 +200,11 @@ class Frenet extends CarrierModule
 
                 foreach($servicosArray as $servicos){
 
-                    $serviceDescription = $servicos->ServiceDescription;
-                    $carrierCode = $servicos->CarrierCode;                    
-                    $code = (string) $servicos->ServiceCode;
+                    $serviceDescription = $servicos[0]->ServiceDescription;
+                    $carrierCode = $servicos[0]->CarrierCode;                    
+                    $code = (string) $servicos[0]->ServiceCode;
                     
-                    if (!isset($servicos->ServiceCode) || $servicos->ServiceCode . '' == '') {
+                    if (!isset($servicos[0]->ServiceCode) || $servicos[0]->ServiceCode . '' == '') {
                         $this->addLog( "installCarriers code: " . $code . "; description: " . $serviceDescription . " carrier: " . $carrierCode);
                         continue;
                     }
@@ -684,6 +685,7 @@ class Frenet extends CarrierModule
 
             curl_setopt($curl, CURLOPT_HEADER, 0);
             curl_setopt($curl, CURLOPT_URL, $service_url);
+			curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
             curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
             $curl_response = curl_exec($curl);
             curl_close($curl);
