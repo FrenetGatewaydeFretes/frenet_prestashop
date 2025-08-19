@@ -553,7 +553,7 @@ class Frenet extends CarrierModule
             $Coupon = $this->getCoupon($params->getCartRules());
 
             // Se o cliente esta logado
-            if ($this->context->customer->isLogged()) {
+            if ($this->context->customer && $this->context->customer->isLogged()) {
 
                 $address = new Address($params->id_address_delivery);
 
